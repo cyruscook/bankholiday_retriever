@@ -10,7 +10,8 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
 )
 NOTICE_URL = "https://www.thegazette.co.uk/notice/"
-NOTICE_FEED_URL = "https://www.thegazette.co.uk/all-notices/notice/data.feed?categorycode-all=all&numberOfLocationSearches=1&location-distance-1=1&sort-by=latest-date&noticetypes=1101"
+NOTICE_FEED_URL_START = "https://www.thegazette.co.uk/all-notices/"
+NOTICE_FEED_URL_END = "/notice/data.feed?categorycode-all=all&numberOfLocationSearches=1&location-distance-1=1&sort-by=latest-date&noticetypes=1101"
 PAGE_SIZE = 5
 
 HTTP_RETRIES = Retry(
@@ -75,7 +76,7 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
         logging.debug("Fetching page %d of feed", page_number)
         res = http.request(
             "GET",
-            f"{NOTICE_FEED_URL}&editon={gazette}&text={query}&results-page-size={PAGE_SIZE}&results-page={page_number}",
+            f"{NOTICE_FEED_URL_START}{gazette}{NOTICE_FEED_URL_END}&editon={gazette}&text={query}&results-page-size={PAGE_SIZE}&results-page={page_number}",
             headers=HTTP_HEADERS,
             timeout=4.0,
             retries=HTTP_RETRIES,
