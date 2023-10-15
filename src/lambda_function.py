@@ -42,6 +42,9 @@ def process_notice(sns, http: urllib3.PoolManager, notice):
         raise e
 
     if bhs:
+        # Remove any duplicates
+        bhs = list(set(bhs))
+
         with BANK_HOLIDAYS_LOCK:
             if notice_id in BANK_HOLIDAYS:
                 logging.error(
@@ -53,6 +56,9 @@ def process_notice(sns, http: urllib3.PoolManager, notice):
                 raise Exception("Processed same notice twice")
             BANK_HOLIDAYS[notice_id] = bhs
     if nbhs:
+        # Remove any duplicates
+        nbhs = list(set(nbhs))
+
         with NOT_BANK_HOLIDAYS_LOCK:
             if notice_id in NOT_BANK_HOLIDAYS:
                 logging.error(
