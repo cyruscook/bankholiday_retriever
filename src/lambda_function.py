@@ -40,9 +40,6 @@ def process_notice(sns, http: urllib3.PoolManager, notice):
                 TopicArn=SNS_TOPIC, Message=f"Failed to process notice {notice_id}"
             )
         raise e
-    print("Notice", notice_id)
-    print("\tBHS", json.dumps(bhs, default=str))
-    print("\tNBHS", json.dumps(nbhs, default=str))
 
     if bhs:
         with BANK_HOLIDAYS_LOCK:
@@ -100,8 +97,6 @@ def lambda_handler(event, context):
             job.result()
 
     with BANK_HOLIDAYS_LOCK:
-        print(json.dumps(BANK_HOLIDAYS, default=str))
-        return {}
         bh_json = json.dumps(BANK_HOLIDAYS, default=str)
         s3.put_object(
             Body=bh_json.encode("utf-8"),
