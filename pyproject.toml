@@ -10,3 +10,8 @@ dependencies = [
     "lxml>=6.0.2",
     "urllib3>=2.6.3",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
