@@ -83,19 +83,27 @@ def lambda_handler(event, context):
             jobs.append(executor.submit(process_notice, sns, http, item))
 
         logging.info("Fetching proclamations by the monarch")
-        # Fetch proclamations for England, Wales, Scotland, and Northern Ireland by the King
+        # Fetch proclamations in London Gazette
         fetch_all_notices(
             http,
             "London",
-            '"Banking and Financial Dealings Act 1971" NOT "Secretary of State"',
+            '"Banking and Financial Dealings Act 1971"',
             process_item,
         )
         logging.info("Fetching proclamations by the Secretary of State")
-        # Fetch proclamations for Northern Ireland by the Secretary of State
+        # Fetch proclamations published in Belfast Gazette
         fetch_all_notices(
             http,
             "Belfast",
-            '"Banking and Financial Dealings Act 1971" AND "Secretary of State"',
+            '"Banking and Financial Dealings Act 1971"',
+            process_item,
+        )
+        logging.info("Fetching proclamations by the monarch in scotland")
+        # Fetch proclamations published in Edinburgh Gazette
+        fetch_all_notices(
+            http,
+            "Edinburgh",
+            '"Banking and Financial Dealings Act 1971"',
             process_item,
         )
 
