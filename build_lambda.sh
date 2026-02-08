@@ -1,17 +1,16 @@
 #!/bin/sh
 
-mkdir -p py_deps
-pip install --platform manylinux2014_aarch64 --implementation cp --python-version 3.11 --only-binary=:all: --upgrade --target ./py_deps boto3 lxml beautifulsoup4
+set -e
+export AWS_PAGER=""
 
-cd py_deps
-zip -r ../lambda.zip .
-cd ..
-rm -rf py_deps
+: "${AWS_REGION:?AWS_REGION not set}"
+: "${1:?no provided function name}"
 
-cd src
-zip ../lambda.zip ./*.py
-cd ..
+docker build -t bankholiday-retriever --provenance=false .
 
-aws lambda update-function-code --function-name $1 --zip-file fileb://lambda.zip
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+aws ecr get-login-password | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+docker tag bankholiday-retriever:latest "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/bankholiday-retriever:latest"
+docker push "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/bankholiday-retriever:latest"
 
-rm -f lambda.zip
+aws lambda update-function-code --function-name $1 --image-uri "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/bankholiday-retriever:latest"

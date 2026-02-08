@@ -1,4 +1,3 @@
 __pycache__
 .vscode
-py_deps/
-lambda.zip
+.venv
