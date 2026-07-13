@@ -203,7 +203,9 @@ def parse_notice(string: str) -> tuple[list[datetime.date], list[datetime.date]]
     """
     logging.debug("Parsing notice '%s'", string)
     string = string.lower()
-    string = string.split("whereas")[0]  # Remove everything after the "Whereas"
+    # Remove everything from the "Whereas" / "Now, therefore" - we only want the title which precedes it.
+    string = string.split("whereas", 1)[0]
+    string = string.split("now, therefore", 1)[0]
     string = string.replace("king", "queen").replace(
         "charles r", "elizabeth r"
     )  # Makes it easier to parse if we can assume queen
