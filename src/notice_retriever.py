@@ -37,11 +37,12 @@ def fetch_notice(http: urllib3.PoolManager, notice_id: str) -> str:
     # Raise an exception if we get a bad status code
     if res.status != 200:
         logging.error(
-            "Request for feed did not succeed (status code %d, response data %b)",
+            "Request for notice '%s' failed (status code %d, response prefix %r)",
+            notice_id,
             res.status,
-            res.data,
+            res.data[:1000],
         )
-        raise Exception("Request for feed did not succeed")
+        raise Exception("Request for notice did not succeed")
 
     # Parse the result as XML
     soup = BeautifulSoup(res.data, "xml")
@@ -73,10 +74,14 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
 
     page_number = 1
     while True:
-        logging.debug("Fetching page %d of feed", page_number)
+        feed_url = (
+            f"{NOTICE_FEED_URL_START}{gazette}{NOTICE_FEED_URL_END}"
+            f"&editon={gazette}&text={query}&results-page-size={PAGE_SIZE}"
+            f"&results-page={page_number}"
+        )
         res = http.request(
             "GET",
-            f"{NOTICE_FEED_URL_START}{gazette}{NOTICE_FEED_URL_END}&editon={gazette}&text={query}&results-page-size={PAGE_SIZE}&results-page={page_number}",
+            feed_url,
             headers=HTTP_HEADERS,
             timeout=4.0,
             retries=HTTP_RETRIES,
@@ -85,15 +90,27 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
         # Raise an exception if we get a bad status code
         if res.status != 200:
             logging.error(
-                "Request for feed did not succeed (status code %d, response data %b)",
+                "Request for %s Gazette feed page %d failed "
+                "(status code %d, response prefix %r)",
+                gazette,
+                page_number,
                 res.status,
-                res.data,
+                res.data[:1000],
             )
-            raise Exception("Request for feed did not succeed")
+            raise Exception("Request for Gazette feed did not succeed")
 
         # Parse the result as XML
         soup = BeautifulSoup(res.data, "xml")
         feed = soup.feed
+        if feed is None:
+            logging.error(
+                "Response for %s Gazette feed page %d did not contain a feed "
+                "element (response prefix %r)",
+                gazette,
+                page_number,
+                res.data[:1000],
+            )
+            raise Exception("Could not find feed in response")
         logging.debug("Page %d of feed: %s", page_number, str(soup))
 
         page_stop = None
@@ -108,6 +125,16 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
                 page_total = item
 
         # Check if there are any more pages
+        if page_stop is None or page_total is None:
+            logging.error(
+                "Response for %s Gazette feed page %d omitted pagination "
+                "metadata (page-stop=%r, total=%r)",
+                gazette,
+                page_number,
+                page_stop,
+                page_total,
+            )
+            raise Exception("Could not find feed pagination metadata")
         page_stop = int(page_stop.string)
         page_total = int(page_total.string)
         if page_stop >= page_total:
