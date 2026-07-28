@@ -1,5 +1,8 @@
-import pytest
 import datetime
+
+import pytest
+import urllib3
+
 from src import notice_parser
 
 NOTICE_TESTS = [
@@ -18,7 +21,15 @@ NOTICE_TESTS = [
 
         GOD SAVE THE KING
         """,
-        "expected": ([datetime.date(2026,1,1), datetime.date(2026,7,13), datetime.date(2026,5,4), datetime.date(2026,12,28)], [datetime.date(2026,12,26)])
+        "expected": (
+            [
+                datetime.date(2026, 1, 1),
+                datetime.date(2026, 7, 13),
+                datetime.date(2026, 5, 4),
+                datetime.date(2026, 12, 28),
+            ],
+            [datetime.date(2026, 12, 26)],
+        ),
     },
     {
         "input": """
@@ -31,7 +42,7 @@ NOTICE_TESTS = [
 
         GOD SAVE THE KING
         """,
-        "expected": ([datetime.date(2026,6,15)], [])
+        "expected": ([datetime.date(2026, 6, 15)], []),
     },
     {
         "input": """
@@ -50,19 +61,34 @@ NOTICE_TESTS = [
 
         GOD SAVE THE KING
         """,
-        "expected": ([datetime.date(2026,12,28), datetime.date(2027,1,4), datetime.date(2027,5,31)], [datetime.date(2026,12,26), datetime.date(2027,1,2)])
-    }
+        "expected": (
+            [
+                datetime.date(2026, 12, 28),
+                datetime.date(2027, 1, 4),
+                datetime.date(2027, 5, 31),
+            ],
+            [datetime.date(2026, 12, 26), datetime.date(2027, 1, 2)],
+        ),
+    },
 ]
+
 
 @pytest.mark.parametrize("test_case", NOTICE_TESTS)
 def test_notice_parser(test_case):
     input_text = test_case["input"]
     expected_bhs, expected_not_bhs = [set(l) for l in test_case["expected"]]
 
-    parsed_bhs, parsed_not_bhs = [set(l) for l in notice_parser.parse_notice(input_text)]
+    parsed_bhs, parsed_not_bhs = [
+        set(l) for l in notice_parser.parse_notice(input_text)
+    ]
 
-    assert parsed_bhs == expected_bhs, f"Expected dates {expected_bhs} but got {parsed_bhs}"
-    assert parsed_not_bhs == expected_not_bhs, f"Expected holidays {expected_not_bhs} but got {parsed_not_bhs}"
+    assert parsed_bhs == expected_bhs, (
+        f"Expected dates {expected_bhs} but got {parsed_bhs}"
+    )
+    assert parsed_not_bhs == expected_not_bhs, (
+        f"Expected holidays {expected_not_bhs} but got {parsed_not_bhs}"
+    )
+
 
 def test_lambda_handler_does_not_reuse_results_between_invocations(monkeypatch):
     import importlib
@@ -109,16 +135,25 @@ def test_lambda_handler_does_not_reuse_results_between_invocations(monkeypatch):
         if fetch_count in (1, 4):
             callback({"id": "https://www.thegazette.co.uk/id/notice/5160659"})
 
-    monkeypatch.setattr(lambda_function, "fetch_all_notices", fetch_one_notice_per_invocation)
+    monkeypatch.setattr(
+        lambda_function, "fetch_all_notices", fetch_one_notice_per_invocation
+    )
 
     first = lambda_function.lambda_handler({}, {})
     second = lambda_function.lambda_handler({}, {})
 
-    assert first == second == {
-        "bank_holidays": {"https://www.thegazette.co.uk/id/notice/5160659": ["2026-12-28"]},
-        "not_bank_holidays": {},
-    }
+    assert (
+        first
+        == second
+        == {
+            "bank_holidays": {
+                "https://www.thegazette.co.uk/id/notice/5160659": ["2026-12-28"]
+            },
+            "not_bank_holidays": {},
+        }
+    )
     assert len(s3.puts) == 4
+
 
 def test_notice_5160659_parser_regression():
     input_text = """
@@ -138,6 +173,7 @@ def test_notice_5160659_parser_regression():
         datetime.date(2027, 1, 2),
     }
 
+
 def test_process_notice_logs_failed_notice_id(monkeypatch, caplog):
     import importlib
     import logging
@@ -155,6 +191,8 @@ def test_process_notice_logs_failed_notice_id(monkeypatch, caplog):
     caplog.set_level(logging.ERROR)
 
     with pytest.raises(ValueError, match="test fetch failure"):
-        lambda_function.process_notice(object(), object(), {"id": notice_id})
+        lambda_function.process_notice(
+            object(), urllib3.PoolManager(), {"id": notice_id}
+        )
 
     assert f"Failed to process notice '{notice_id}' (ValueError)" in caplog.text

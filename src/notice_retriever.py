@@ -1,10 +1,11 @@
 # requirements: lxml, beautifulsoup4
 
-import urllib3
-from urllib3.util import Retry
-import urllib.parse
-from bs4 import BeautifulSoup
 import logging
+import urllib.parse
+
+import urllib3
+from bs4 import BeautifulSoup, Tag
+from urllib3.util import Retry
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
@@ -24,6 +25,12 @@ HTTP_HEADERS = {
     "User-Agent": USER_AGENT,
 }
 
+LOGGER = logging.getLogger(__name__)
+
+
+class NoticeRetrievalError(Exception):
+    """Raised when a Gazette response cannot be retrieved or parsed."""
+
 
 def fetch_notice(http: urllib3.PoolManager, notice_id: str) -> str:
     res = http.request(
@@ -36,25 +43,25 @@ def fetch_notice(http: urllib3.PoolManager, notice_id: str) -> str:
 
     # Raise an exception if we get a bad status code
     if res.status != 200:
-        logging.error(
+        LOGGER.error(
             "Request for notice '%s' failed (status code %d, response prefix %r)",
             notice_id,
             res.status,
             res.data[:1000],
         )
-        raise Exception("Request for notice did not succeed")
+        raise NoticeRetrievalError("Request for notice did not succeed")
 
     # Parse the result as XML
     soup = BeautifulSoup(res.data, "xml")
-    logging.debug("Notice '%s': '%s'", notice_id, str(soup))
+    LOGGER.debug("Notice '%s': '%s'", notice_id, str(soup))
 
     # Find the element containing the notice text
     textEl = soup.find("div", {"about": "this:notifiableThing"}) or soup.find(
         "div", {"class": "content"}
     )
     if not textEl:
-        logging.error("Could not find notice text within notice xml: %s", str(soup))
-        raise Exception("Could not find notice text within notice xml")
+        LOGGER.error("Could not find notice text within notice xml: %s", str(soup))
+        raise NoticeRetrievalError("Could not find notice text within notice xml")
 
     text = textEl.text
     text = " ".join(text.split())  # Remove excessive whitespace
@@ -62,7 +69,7 @@ def fetch_notice(http: urllib3.PoolManager, notice_id: str) -> str:
 
 
 def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callback):
-    logging.debug(
+    LOGGER.debug(
         "Fetching feed from gazette '%s', with query '%s', and page sizes of %d",
         gazette,
         query,
@@ -89,7 +96,7 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
 
         # Raise an exception if we get a bad status code
         if res.status != 200:
-            logging.error(
+            LOGGER.error(
                 "Request for %s Gazette feed page %d failed "
                 "(status code %d, response prefix %r)",
                 gazette,
@@ -97,36 +104,45 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
                 res.status,
                 res.data[:1000],
             )
-            raise Exception("Request for Gazette feed did not succeed")
+            raise NoticeRetrievalError("Request for Gazette feed did not succeed")
 
         # Parse the result as XML
         soup = BeautifulSoup(res.data, "xml")
         feed = soup.feed
         if feed is None:
-            logging.error(
+            LOGGER.error(
                 "Response for %s Gazette feed page %d did not contain a feed "
                 "element (response prefix %r)",
                 gazette,
                 page_number,
                 res.data[:1000],
             )
-            raise Exception("Could not find feed in response")
-        logging.debug("Page %d of feed: %s", page_number, str(soup))
+            raise NoticeRetrievalError("Could not find feed in response")
+        LOGGER.debug("Page %d of feed: %s", page_number, str(soup))
 
-        page_stop = None
-        page_total = None
+        page_stop: str | None = None
+        page_total: str | None = None
         for item in feed.children:
+            if not isinstance(item, Tag):
+                continue
             if item.name == "entry":
-                item = {"id": item.id.string}
-                callback(item)
-            elif item.name == "page-stop" or item.name == "f:page-stop":
-                page_stop = item
-            elif item.name == "total" or item.name == "f:total":
-                page_total = item
+                notice_id = item.find("id")
+                if not isinstance(notice_id, Tag) or notice_id.string is None:
+                    LOGGER.error(
+                        "Response for %s Gazette feed page %d contains an entry without an id",
+                        gazette,
+                        page_number,
+                    )
+                    raise NoticeRetrievalError("Could not find notice id in feed entry")
+                callback({"id": notice_id.string})
+            elif item.name in {"page-stop", "f:page-stop"}:
+                page_stop = item.string
+            elif item.name in {"total", "f:total"}:
+                page_total = item.string
 
         # Check if there are any more pages
         if page_stop is None or page_total is None:
-            logging.error(
+            LOGGER.error(
                 "Response for %s Gazette feed page %d omitted pagination "
                 "metadata (page-stop=%r, total=%r)",
                 gazette,
@@ -134,26 +150,23 @@ def fetch_all_notices(http: urllib3.PoolManager, gazette: str, query: str, callb
                 page_stop,
                 page_total,
             )
-            raise Exception("Could not find feed pagination metadata")
-        page_stop = int(page_stop.string)
-        page_total = int(page_total.string)
-        if page_stop >= page_total:
+            raise NoticeRetrievalError("Could not find feed pagination metadata")
+        if int(page_stop) >= int(page_total):
             break
-        else:
-            page_number += 1
+        page_number += 1
 
 
-def get_notice_text(http: urllib3.PoolManager, notice_id) -> str:
+def get_notice_text(http: urllib3.PoolManager, notice_id: str) -> str:
     # The "id" field contains the notice id, but it is within a URL - have to remove the URL part before it
     ID_PREFIX = "https://www.thegazette.co.uk/id/notice/"
     id = notice_id
     if id.startswith(ID_PREFIX):
         id = id[len(ID_PREFIX) :]
     else:
-        logging.error("Unable to get notice id: %s", id)
-        raise Exception("Unable to get notice id")
+        LOGGER.error("Unable to get notice id: %s", id)
+        raise NoticeRetrievalError("Unable to get notice id")
 
     text = fetch_notice(http, id)
-    logging.debug("Fetched notice: %s", text)
+    LOGGER.debug("Fetched notice: %s", text)
 
     return text
