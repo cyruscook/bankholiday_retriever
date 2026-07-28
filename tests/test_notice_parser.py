@@ -213,7 +213,9 @@ def test_process_notice_skips_unsatisfied_conditional_notice(monkeypatch, caplog
     monkeypatch.setattr(lambda_function, "get_notice_text", fail_to_fetch)
     caplog.set_level(logging.INFO)
 
-    assert lambda_function.process_notice(object(), urllib3.PoolManager(), {"id": notice_id}) == (
+    assert lambda_function.process_notice(
+        object(), urllib3.PoolManager(), {"id": notice_id}
+    ) == (
         notice_id,
         [],
         [],
