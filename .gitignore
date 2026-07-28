@@ -1,3 +1,7 @@
-__pycache__
 .vscode
 .venv
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+terraform/.terraform
+terraform/.terraform.lock.hcl

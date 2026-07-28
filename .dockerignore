@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+.venv
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+terraform/
+AGENTS.md
+README.md
+build_lambda.sh
+.python-version

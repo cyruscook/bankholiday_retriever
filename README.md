@@ -4,13 +4,18 @@ Retrieves proclamations of bank holidays under Section 1 of the Banking and Fina
 The S3 bucket will contain two files, `proclaimed_bhs.json`, with any dates proclaimed to be a bank holiday, and `proclaimed_not_bhs.json`, with any dates proclaimed not to be a bank holiday.
 
 Can be deployed as an AWS lambda:
-1. Create an arm64 docker image lambda function
-1. Run `AWS_REGION={region} ./build_lambda.sh {lambda_function_name}`
+1. Mirror the [GHCR image](https://github.com/cyruscook/bankholiday_retriever/pkgs/container/bankholiday_retriever) into ECR
+1. Use the Terraform module in [terraform](./terraform/)
 
-The lambda should have the following environment variables:
-* `LOGLEVEL` - the log level, `INFO` if not specified
-* `S3_BUCKET` - the S3 bucket to publish the results to
-* `SNS_TOPIC` - an SNS topic to send errors to if a proclamation could not be parsed, will just not send an error if the environment variable doesn't exist
+## Use the published dataset
+
+I maintain a copy of this Lambda which creates a public free to use dataset of bank holidays at these URLs:
+- https://d7rpp5pzwp0ap.cloudfront.net/proclaimed_bhs.json
+- https://d7rpp5pzwp0ap.cloudfront.net/proclaimed_not_bhs.json
+
+## FOI Working Day Calculator
+
+This project and its dataset powers the [FOI Working Day Calculator](https://cyruscook.github.io/FOIWorkingDayCalculator)
 
 ## Tests
 
