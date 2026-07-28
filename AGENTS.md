@@ -14,5 +14,5 @@ The Lambda should have the following environment variables:
 ## Key commands
 
 * Formatting: `uvx ruff format`
-* Linting/type checking: `uvx ruff check`, `uvx ty check`
+* Linting/type checking: `uvx ruff check` and `uvx ty check`
 * Tests: `uv run pytest`

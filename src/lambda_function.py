@@ -19,6 +19,10 @@ LOGGER = logging.getLogger(__name__)
 S3_BUCKET = os.environ.get("S3_BUCKET")
 # SNS Topic for errors
 SNS_TOPIC = os.environ.get("SNS_TOPIC")
+# Notices that are conditional on external factors
+UNSATISFIED_CONDITIONAL_NOTICE_IDS = frozenset(
+    {"https://www.thegazette.co.uk/id/notice/5175348"}
+)
 
 
 class DuplicateNoticeError(Exception):
@@ -27,6 +31,12 @@ class DuplicateNoticeError(Exception):
 
 def process_notice(sns, http: urllib3.PoolManager, notice):
     notice_id = notice["id"]
+    if notice_id in UNSATISFIED_CONDITIONAL_NOTICE_IDS:
+        LOGGER.info(
+            "Skipping notice '%s' because its condition was not satisfied",
+            notice_id,
+        )
+        return notice_id, [], []
     LOGGER.debug("Processing notice '%s'", notice_id)
     try:
         text = get_notice_text(http, notice_id)

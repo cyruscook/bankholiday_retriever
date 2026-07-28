@@ -15,5 +15,5 @@ The lambda should have the following environment variables:
 ## Tests
 
 ```sh
-uv run pytest
+uvx ruff check && uvx ty check && uv run pytest
 ```

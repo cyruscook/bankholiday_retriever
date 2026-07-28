@@ -196,3 +196,30 @@ def test_process_notice_logs_failed_notice_id(monkeypatch, caplog):
         )
 
     assert f"Failed to process notice '{notice_id}' (ValueError)" in caplog.text
+
+
+def test_process_notice_skips_unsatisfied_conditional_notice(monkeypatch, caplog):
+    import importlib
+    import logging
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1] / "src"))
+    lambda_function = importlib.import_module("lambda_function")
+    notice_id = "https://www.thegazette.co.uk/id/notice/5175348"
+
+    def fail_to_fetch(http, requested_notice_id):
+        raise AssertionError("notice should not be fetched")
+
+    monkeypatch.setattr(lambda_function, "get_notice_text", fail_to_fetch)
+    caplog.set_level(logging.INFO)
+
+    assert lambda_function.process_notice(object(), urllib3.PoolManager(), {"id": notice_id}) == (
+        notice_id,
+        [],
+        [],
+    )
+    # They did not win 💀
+    assert (
+        f"Skipping notice '{notice_id}' because its condition was not satisfied"
+        in caplog.text
+    )
