@@ -13,9 +13,11 @@ I maintain a copy of this Lambda which creates a public free to use dataset of b
 - https://d7rpp5pzwp0ap.cloudfront.net/proclaimed_bhs.json
 - https://d7rpp5pzwp0ap.cloudfront.net/proclaimed_not_bhs.json
 
-## FOI Working Day Calculator
+## Other projects
 
-This project and its dataset powers the [FOI Working Day Calculator](https://cyruscook.github.io/FOIWorkingDayCalculator)
+This project and its dataset powers:
+* the [UK Public Holiday Calendar](https://cyruscook.github.io/UKPublicHolidays/)
+* the [FOI Working Day Calculator](https://cyruscook.github.io/FOIWorkingDayCalculator/)
 
 ## Tests
 
