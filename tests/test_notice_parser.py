@@ -1,4 +1,5 @@
 import datetime
+import json
 
 import pytest
 import urllib3
@@ -22,13 +23,25 @@ NOTICE_TESTS = [
         GOD SAVE THE KING
         """,
         "expected": (
-            [
-                datetime.date(2026, 1, 1),
-                datetime.date(2026, 7, 13),
-                datetime.date(2026, 5, 4),
-                datetime.date(2026, 12, 28),
-            ],
-            [datetime.date(2026, 12, 26)],
+            {
+                notice_parser.Territory.ENGLAND_AND_WALES: {
+                    datetime.date(2026, 1, 1),
+                    datetime.date(2026, 5, 4),
+                    datetime.date(2026, 12, 28),
+                },
+                notice_parser.Territory.NORTHERN_IRELAND: {
+                    datetime.date(2026, 1, 1),
+                    datetime.date(2026, 5, 4),
+                    datetime.date(2026, 7, 13),
+                    datetime.date(2026, 12, 28),
+                },
+            },
+            {
+                notice_parser.Territory.ENGLAND_AND_WALES: {
+                    datetime.date(2026, 12, 26)
+                },
+                notice_parser.Territory.NORTHERN_IRELAND: {datetime.date(2026, 12, 26)},
+            },
         ),
     },
     {
@@ -42,7 +55,10 @@ NOTICE_TESTS = [
 
         GOD SAVE THE KING
         """,
-        "expected": ([datetime.date(2026, 6, 15)], []),
+        "expected": (
+            {notice_parser.Territory.SCOTLAND: {datetime.date(2026, 6, 15)}},
+            {},
+        ),
     },
     {
         "input": """
@@ -62,12 +78,19 @@ NOTICE_TESTS = [
         GOD SAVE THE KING
         """,
         "expected": (
-            [
-                datetime.date(2026, 12, 28),
-                datetime.date(2027, 1, 4),
-                datetime.date(2027, 5, 31),
-            ],
-            [datetime.date(2026, 12, 26), datetime.date(2027, 1, 2)],
+            {
+                notice_parser.Territory.SCOTLAND: {
+                    datetime.date(2026, 12, 28),
+                    datetime.date(2027, 1, 4),
+                    datetime.date(2027, 5, 31),
+                }
+            },
+            {
+                notice_parser.Territory.SCOTLAND: {
+                    datetime.date(2026, 12, 26),
+                    datetime.date(2027, 1, 2),
+                }
+            },
         ),
     },
 ]
@@ -76,11 +99,9 @@ NOTICE_TESTS = [
 @pytest.mark.parametrize("test_case", NOTICE_TESTS)
 def test_notice_parser(test_case):
     input_text = test_case["input"]
-    expected_bhs, expected_not_bhs = [set(l) for l in test_case["expected"]]
+    expected_bhs, expected_not_bhs = test_case["expected"]
 
-    parsed_bhs, parsed_not_bhs = [
-        set(l) for l in notice_parser.parse_notice(input_text)
-    ]
+    parsed_bhs, parsed_not_bhs = notice_parser.parse_notice(input_text)
 
     assert parsed_bhs == expected_bhs, (
         f"Expected dates {expected_bhs} but got {parsed_bhs}"
@@ -119,7 +140,18 @@ def test_lambda_handler_does_not_reuse_results_between_invocations(monkeypatch):
     monkeypatch.setattr(
         lambda_function,
         "parse_notice",
-        lambda text: ([datetime.date(2026, 12, 28)], []),
+        lambda text: (
+            {
+                notice_parser.Territory.NORTHERN_IRELAND: {
+                    datetime.date(2026, 12, 28),
+                    datetime.date(2026, 1, 1),
+                },
+                notice_parser.Territory.ENGLAND_AND_WALES: {datetime.date(2026, 5, 4)},
+            },
+            {
+                notice_parser.Territory.SCOTLAND: {datetime.date(2026, 1, 2)},
+            },
+        ),
     )
     monkeypatch.setattr(
         lambda_function.urllib3,
@@ -142,17 +174,33 @@ def test_lambda_handler_does_not_reuse_results_between_invocations(monkeypatch):
     first = lambda_function.lambda_handler({}, {})
     second = lambda_function.lambda_handler({}, {})
 
-    assert (
-        first
-        == second
-        == {
-            "bank_holidays": {
-                "https://www.thegazette.co.uk/id/notice/5160659": ["2026-12-28"]
-            },
-            "not_bank_holidays": {},
-        }
-    )
-    assert len(s3.puts) == 4
+    expected = {
+        "bank_holidays": {
+            "https://www.thegazette.co.uk/id/notice/5160659": {
+                "England and Wales": ["2026-05-04"],
+                "Northern Ireland": ["2026-01-01", "2026-12-28"],
+            }
+        },
+        "not_bank_holidays": {
+            "https://www.thegazette.co.uk/id/notice/5160659": {
+                "Scotland": ["2026-01-02"],
+            }
+        },
+    }
+
+    assert first == second == expected
+    assert [put["Key"] for put in s3.puts] == [
+        "proclaimed_bhs.json",
+        "proclaimed_not_bhs.json",
+        "proclaimed_bhs.json",
+        "proclaimed_not_bhs.json",
+    ]
+    assert [json.loads(put["Body"].decode("utf-8")) for put in s3.puts] == [
+        expected["bank_holidays"],
+        expected["not_bank_holidays"],
+        expected["bank_holidays"],
+        expected["not_bank_holidays"],
+    ]
 
 
 def test_notice_5160659_parser_regression():
@@ -163,15 +211,29 @@ def test_notice_5160659_parser_regression():
 
     bank_holidays, not_bank_holidays = notice_parser.parse_notice(input_text)
 
-    assert set(bank_holidays) == {
-        datetime.date(2026, 12, 28),
-        datetime.date(2027, 1, 4),
-        datetime.date(2027, 5, 31),
+    assert bank_holidays == {
+        notice_parser.Territory.SCOTLAND: {
+            datetime.date(2026, 12, 28),
+            datetime.date(2027, 1, 4),
+            datetime.date(2027, 5, 31),
+        }
     }
-    assert set(not_bank_holidays) == {
-        datetime.date(2026, 12, 26),
-        datetime.date(2027, 1, 2),
+    assert not_bank_holidays == {
+        notice_parser.Territory.SCOTLAND: {
+            datetime.date(2026, 12, 26),
+            datetime.date(2027, 1, 2),
+        }
     }
+
+
+def test_notice_parser_rejects_unsupported_territory():
+    input_text = (
+        "BY THE KING A PROCLAMATION APPOINTING THURSDAY 1ST JANUARY 2026 "
+        "AS A BANK HOLIDAY IN GUERNSEY CHARLES R."
+    )
+
+    with pytest.raises(notice_parser.NoticeParseError):
+        notice_parser.parse_notice(input_text)
 
 
 def test_process_notice_logs_failed_notice_id(monkeypatch, caplog):
@@ -217,8 +279,8 @@ def test_process_notice_skips_unsatisfied_conditional_notice(monkeypatch, caplog
         object(), urllib3.PoolManager(), {"id": notice_id}
     ) == (
         notice_id,
-        [],
-        [],
+        {},
+        {},
     )
     # They did not win 💀
     assert (

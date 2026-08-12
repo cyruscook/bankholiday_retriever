@@ -2,6 +2,7 @@ import datetime
 import logging
 import os
 import re
+from enum import StrEnum
 
 MONTH_LOOKUP = {
     "january": 1,
@@ -27,6 +28,15 @@ LOGGER = logging.getLogger(__name__)
 
 class NoticeParseError(Exception):
     """Raised when a notice does not match a supported proclamation format."""
+
+
+class Territory(StrEnum):
+    ENGLAND_AND_WALES = "England and Wales"
+    SCOTLAND = "Scotland"
+    NORTHERN_IRELAND = "Northern Ireland"
+
+
+type HolidaysByTerritory = dict[Territory, set[datetime.date]]
 
 
 def parse_date(string: str) -> tuple[str, datetime.date]:
@@ -111,29 +121,87 @@ def parse_date_list(
     return (string, dates, neg_dates)
 
 
-def read_country_list(string: str) -> str:
+def parse_territories(string: str) -> tuple[str, set[Territory]]:
+    territories = set()
+    remainder = string
+
     while True:
-        if string.startswith("england"):
-            string = string[len("england") :]
-        elif string.startswith(", england"):
-            string = string[len(", england") :]
-        elif string.startswith(" and england"):
-            string = string[len(" and england") :]
-        elif string.startswith(", and england"):
-            string = string[len(", and england") :]
-        else:
+        territory_match = next(
+            (
+                (name, territory)
+                for name, territory in (
+                    ("northern ireland", Territory.NORTHERN_IRELAND),
+                    ("england", Territory.ENGLAND_AND_WALES),
+                    ("wales", Territory.ENGLAND_AND_WALES),
+                    ("scotland", Territory.SCOTLAND),
+                )
+                if remainder.startswith(name)
+                and (len(remainder) == len(name) or not remainder[len(name)].isalpha())
+            ),
+            None,
+        )
+        if territory_match is None:
+            if territories:
+                break
+            raise NoticeParseError("Missing or unsupported territory")
+
+        name, territory = territory_match
+        remainder = remainder[len(name) :]
+        territories.add(territory)
+
+        separator = next(
+            (
+                separator
+                for separator in (", and ", ", ", " and ")
+                if remainder.startswith(separator)
+            ),
+            None,
+        )
+        if separator is None:
             break
-    return string
+
+        next_territory = remainder[len(separator) :]
+        if next_territory.startswith("appointing "):
+            break
+        if not any(
+            next_territory.startswith(name)
+            and (
+                len(next_territory) == len(name)
+                or not next_territory[len(name)].isalpha()
+            )
+            for name, _ in (
+                ("northern ireland", Territory.NORTHERN_IRELAND),
+                ("england", Territory.ENGLAND_AND_WALES),
+                ("wales", Territory.ENGLAND_AND_WALES),
+                ("scotland", Territory.SCOTLAND),
+            )
+        ):
+            raise NoticeParseError("Missing or unsupported territory")
+        remainder = next_territory
+
+    return remainder, territories
 
 
-def parse_proclamation(string: str) -> tuple[list[datetime.date], list[datetime.date]]:
-    bh_dates = []
-    neg_dates = []
+def add_dates_by_territory(
+    result: HolidaysByTerritory,
+    territories: set[Territory],
+    dates: list[datetime.date],
+) -> None:
+    if not dates:
+        return
+    for territory in territories:
+        result.setdefault(territory, set()).update(dates)
+
+
+def parse_proclamation(
+    string: str,
+) -> tuple[HolidaysByTerritory, HolidaysByTerritory]:
+    bh_dates: HolidaysByTerritory = {}
+    neg_dates: HolidaysByTerritory = {}
     next_is_negative = False
+    previous_territories: set[Territory] | None = None
     while True:
         string, new_dates, new_neg_dates = parse_date_list(string, next_is_negative)
-        bh_dates.extend(new_dates)
-        neg_dates.extend(new_neg_dates)
         LOGGER.debug("Parsed dates '%s', '%s' for country", new_dates, new_neg_dates)
 
         string = string.removeprefix(",")
@@ -155,7 +223,13 @@ def parse_proclamation(string: str) -> tuple[list[datetime.date], list[datetime.
             else:
                 LOGGER.error("Unexpected text within proclamation '%s'", string)
                 raise NoticeParseError("Unexpected text within proclamation")
-            string = read_country_list(string)
+            string, previous_territories = parse_territories(string)
+            add_dates_by_territory(bh_dates, previous_territories, new_dates)
+            add_dates_by_territory(neg_dates, previous_territories, new_neg_dates)
+        elif next_is_negative:
+            if previous_territories is None:
+                raise NoticeParseError("Negative dates have no territory")
+            add_dates_by_territory(neg_dates, previous_territories, new_neg_dates)
 
         string = string.removeprefix(",")
 
@@ -196,7 +270,7 @@ def parse_proclamation(string: str) -> tuple[list[datetime.date], list[datetime.
     return (bh_dates, neg_dates)
 
 
-def parse_notice(string: str) -> tuple[list[datetime.date], list[datetime.date]]:
+def parse_notice(string: str) -> tuple[HolidaysByTerritory, HolidaysByTerritory]:
     """
     Parse a bank holiday proclamation notice and return the dates made bank holidays, and the dates made no longer bank holidays
     """
@@ -208,11 +282,6 @@ def parse_notice(string: str) -> tuple[list[datetime.date], list[datetime.date]]
     string = string.replace("king", "queen").replace(
         "charles r", "elizabeth r"
     )  # Makes it easier to parse if we can assume queen
-    string = (
-        string.replace("wales", "england")
-        .replace("scotland", "england")
-        .replace("northern ireland", "england")
-    )  # remove any non-existent countries
     string = string.replace("p roclamation", "proclamation")  # line replacement issues
     string = string.strip()
     LOGGER.debug("Cleant up notice: '%s'", string)
@@ -251,7 +320,7 @@ def parse_notice(string: str) -> tuple[list[datetime.date], list[datetime.date]]
     ):
         # Notice accompanying some bank holiday notices asking them to be affixed with the great seal
         LOGGER.warning("Skipping notice relating to great seal")
-        return ([], [])
+        return ({}, {})
 
     LOGGER.error(
         "Couldn't parse notice as it did not match any expected format: '%s'", string

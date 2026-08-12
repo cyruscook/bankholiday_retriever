@@ -5,3 +5,4 @@ __pycache__/
 .ruff_cache/
 terraform/.terraform
 terraform/.terraform.lock.hcl
+.DS_Store

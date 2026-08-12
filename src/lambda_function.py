@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import boto3
 import urllib3
 
-from notice_parser import parse_notice
+from notice_parser import HolidaysByTerritory, Territory, parse_notice
 from notice_retriever import fetch_all_notices, get_notice_text
 
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO").upper())
@@ -29,14 +29,38 @@ class DuplicateNoticeError(Exception):
     """Raised when a notice produces duplicate bank-holiday results."""
 
 
-def process_notice(sns, http: urllib3.PoolManager, notice):
+TERRITORY_ORDER = (
+    Territory.ENGLAND_AND_WALES,
+    Territory.SCOTLAND,
+    Territory.NORTHERN_IRELAND,
+)
+
+
+def serialize_holidays(
+    holidays: dict[str, HolidaysByTerritory],
+) -> dict[str, dict[str, list[str]]]:
+    serialized = {}
+    for notice_id, holidays_by_territory in holidays.items():
+        serialized[notice_id] = {}
+        for territory in TERRITORY_ORDER:
+            dates = holidays_by_territory.get(territory)
+            if dates:
+                serialized[notice_id][territory.value] = [
+                    date.isoformat() for date in sorted(dates)
+                ]
+    return serialized
+
+
+def process_notice(
+    sns, http: urllib3.PoolManager, notice
+) -> tuple[str, HolidaysByTerritory, HolidaysByTerritory]:
     notice_id = notice["id"]
     if notice_id in UNSATISFIED_CONDITIONAL_NOTICE_IDS:
         LOGGER.info(
             "Skipping notice '%s' because its condition was not satisfied",
             notice_id,
         )
-        return notice_id, [], []
+        return notice_id, {}, {}
     LOGGER.debug("Processing notice '%s'", notice_id)
     try:
         text = get_notice_text(http, notice_id)
@@ -63,7 +87,7 @@ def process_notice(sns, http: urllib3.PoolManager, notice):
                 )
         raise
 
-    return notice_id, list(set(bhs)), list(set(nbhs))
+    return notice_id, bhs, nbhs
 
 
 def lambda_handler(event, context):
@@ -151,7 +175,8 @@ def _lambda_handler(event, context):
                     raise DuplicateNoticeError("Processed same notice twice")
                 not_bank_holidays[notice_id] = nbhs
 
-    bh_json = json.dumps(bank_holidays, default=str)
+    bh_result = serialize_holidays(bank_holidays)
+    bh_json = json.dumps(bh_result)
     s3.put_object(
         Body=bh_json.encode("utf-8"),
         Bucket=S3_BUCKET,
@@ -160,7 +185,8 @@ def _lambda_handler(event, context):
     )
     LOGGER.info("Uploaded bank holidays to S3")
 
-    nbh_json = json.dumps(not_bank_holidays, default=str)
+    nbh_result = serialize_holidays(not_bank_holidays)
+    nbh_json = json.dumps(nbh_result)
     s3.put_object(
         Body=nbh_json.encode("utf-8"),
         Bucket=S3_BUCKET,
@@ -170,8 +196,8 @@ def _lambda_handler(event, context):
     LOGGER.info("Uploaded no longer bank holidays to S3")
 
     return {
-        "bank_holidays": json.loads(bh_json),
-        "not_bank_holidays": json.loads(nbh_json),
+        "bank_holidays": bh_result,
+        "not_bank_holidays": nbh_result,
     }
 
 
