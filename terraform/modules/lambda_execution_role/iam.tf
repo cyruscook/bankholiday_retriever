@@ -32,6 +32,9 @@ data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
 data "aws_region" "current" {}
+data "aws_service_principal" "lambda" {
+  service_name = "lambda"
+}
 
 locals {
   log_group_arn = format(
@@ -54,7 +57,7 @@ resource "aws_iam_role" "lambda" {
       {
         Effect = "Allow"
         Principal = {
-          Service = "lambda.amazonaws.com"
+          Service = data.aws_service_principal.lambda.name
         }
         Action = "sts:AssumeRole"
       }
